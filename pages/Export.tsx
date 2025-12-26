@@ -1,261 +1,250 @@
-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
-import { logger } from '../services/LoggerService';
 
 const Export = () => {
-    const { processedImage, originalImage, fileMetadata } = useApp();
-    const [isProcessing, setIsProcessing] = useState(false);
-    const [progress, setProgress] = useState(0);
-    const [statusMessage, setStatusMessage] = useState("");
+    const { processedImage, originalImage, rawBinary, fileMetadata } = useApp();
+    const [exportFormat, setExportFormat] = useState("JPG 100%");
+    const [resolutionMode, setResolutionMode] = useState("NATIVE"); // NATIVE, MATCH_SOURCE, 1080P
+    const [isExporting, setIsExporting] = useState(false);
+    const [sourceDimensions, setSourceDimensions] = useState<{w: number, h: number} | null>(null);
 
-    // Master Output Settings
-    const [quality, setQuality] = useState(1.0); // 100%
-    const [scale, setScale] = useState(1.0); // Native
-
-    // Visual State
-    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-
+    // Load original image dimensions on mount to enable "Match Source"
     useEffect(() => {
-        setPreviewUrl(processedImage || originalImage);
-    }, [processedImage, originalImage]);
-
-    const getFilename = (suffix: string, ext: string) => {
-        if (!fileMetadata || !fileMetadata.name) return `PhotoAudit_Export_${Date.now()}.${ext}`;
-
-        const originalName = fileMetadata.name;
-        // Strip extension
-        const baseName = originalName.lastIndexOf('.') > -1
-            ? originalName.substring(0, originalName.lastIndexOf('.'))
-            : originalName;
-
-        // Sanitize
-        const cleanName = baseName.replace(/[^a-zA-Z0-9_-]/g, '_');
-
-        return `${cleanName}_${suffix}.${ext}`;
-    }
-
-    const handleDownloadSource = async () => {
-        if (!originalImage) return;
-
-        try {
-            logger.info("EXPORT", "Downloading Source Image");
-            const link = document.createElement("a");
-            link.href = originalImage;
-            link.download = getFilename("Source", "jpg"); // Assuming jpg for now if unknown
-            if (fileMetadata?.extension) {
-                link.download = getFilename("Source", fileMetadata.extension);
-            }
-
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            logger.success("EXPORT", "Source Downloaded");
-        } catch (e) {
-            logger.error("EXPORT", "Source Download Failed", e);
-            alert("Could not download source.");
-        }
-    };
-
-    const handleExportMaster = async () => {
-        const source = processedImage || originalImage;
-        if (!source) {
-            alert("No image to export.");
-            return;
-        }
-
-        setIsProcessing(true);
-        setStatusMessage("Initializing Render Engine (High-Res Blob)...");
-        setProgress(10);
-
-        try {
-            // 1. Load Image
+        if (originalImage) {
             const img = new Image();
-            img.crossOrigin = "Anonymous"; // Crucial for canvas export
-            img.src = source;
+            img.src = originalImage;
+            img.onload = () => {
+                setSourceDimensions({ w: img.naturalWidth, h: img.naturalHeight });
+            };
+        }
+    }, [originalImage]);
 
-            await new Promise<void>((resolve, reject) => {
-                img.onload = () => resolve();
-                img.onerror = (e) => reject(new Error("Failed to load source image into memory."));
-            });
+    const handleDownload = async () => {
+        if (!processedImage && exportFormat !== "RAW") return;
 
-            setStatusMessage("Constructing Canvas...");
-            setProgress(30);
+        setIsExporting(true);
 
-            // 2. Setup Canvas
-            const canvas = document.createElement('canvas');
-            const targetWidth = img.naturalWidth * scale;
-            const targetHeight = img.naturalHeight * scale;
+        try {
+            let downloadUrl = "";
+            let filename = `PhotoAudit_Export_${Date.now()}`;
+            
+            // 1. RAW EXPORT (Passthrough)
+            if (exportFormat === "RAW") {
+                if (rawBinary && fileMetadata) {
+                     // Create a blob from the raw binary string
+                     const byteCharacters = atob(rawBinary);
+                     const byteNumbers = new Array(byteCharacters.length);
+                     for (let i = 0; i < byteCharacters.length; i++) {
+                         byteNumbers[i] = byteCharacters.charCodeAt(i);
+                     }
+                     const byteArray = new Uint8Array(byteNumbers);
+                     const blob = new Blob([byteArray], { type: "application/octet-stream" });
+                     downloadUrl = URL.createObjectURL(blob);
+                     filename = `PhotoAudit_Source_${Date.now()}${fileMetadata.extension}`; // e.g. .rw2
+                } else if (originalImage) {
+                    // Fallback if binary missing but originalImage exists (e.g. loaded as jpg)
+                    downloadUrl = originalImage;
+                    filename = `PhotoAudit_Source_${Date.now()}.jpg`;
+                }
+            } 
+            // 2. IMAGE EXPORT (JPG/PNG with Canvas Processing)
+            else {
+                const img = new Image();
+                img.src = processedImage!;
+                await img.decode();
 
-            canvas.width = targetWidth;
-            canvas.height = targetHeight;
-            const ctx = canvas.getContext('2d', { alpha: false });
+                const canvas = document.createElement('canvas');
+                let targetW = img.naturalWidth;
+                let targetH = img.naturalHeight;
 
-            if (!ctx) throw new Error("Canvas Context Lost");
-
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-
-            setStatusMessage("Rendering Pixels...");
-            setProgress(50);
-
-            ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
-
-            setStatusMessage("Encoding Binary Stream (JPEG)...");
-            setProgress(75);
-
-            // 3. Encode to Blob (Async & memory efficient)
-            canvas.toBlob(async (blob) => {
-                if (!blob) {
-                    logger.error("EXPORT", "Blob encoding failed (Empty result)");
-                    setStatusMessage("Error: Encoding Failed");
-                    setIsProcessing(false);
-                    return;
+                // Calculate Dimensions
+                if (resolutionMode === "MATCH_SOURCE" && sourceDimensions) {
+                    targetW = sourceDimensions.w;
+                    targetH = sourceDimensions.h;
+                } else if (resolutionMode === "1080P") {
+                    const aspect = img.naturalWidth / img.naturalHeight;
+                    if (aspect > 1) { // Landscape
+                        targetW = 1920;
+                        targetH = 1920 / aspect;
+                    } else { // Portrait
+                        targetH = 1920;
+                        targetW = 1920 * aspect;
+                    }
                 }
 
-                // 4. Save
-                setStatusMessage("Writing to Disk...");
-                setProgress(90);
+                canvas.width = targetW;
+                canvas.height = targetH;
+                const ctx = canvas.getContext('2d');
+                
+                if (ctx) {
+                    // High quality scaling
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.imageSmoothingQuality = 'high';
+                    ctx.drawImage(img, 0, 0, targetW, targetH);
 
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement("a");
+                    // Encode
+                    if (exportFormat.includes("PNG")) {
+                        downloadUrl = canvas.toDataURL("image/png");
+                        filename += ".png";
+                    } else {
+                        // JPG
+                        const quality = exportFormat.includes("100") ? 1.0 : 0.85;
+                        downloadUrl = canvas.toDataURL("image/jpeg", quality);
+                        filename += ".jpg";
+                    }
+                }
+            }
 
-                // [FIX] Force Safe Filename (Bypass Helper)
-                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-                const finalName = `PhotoAudit_Master_${timestamp}.jpg`;
-
-                console.log("⬇️ STARTING DOWNLOAD:", { finalName, size: blob.size, url });
-                logger.info("EXPORT", "Triggering Download", { finalName });
-
-                link.href = url;
-                // Double-tap the download attribute for best compatibility
-                link.download = finalName;
-                link.setAttribute("download", finalName);
-
+            // Trigger Download
+            if (downloadUrl) {
+                const link = document.createElement('a');
+                link.href = downloadUrl;
+                link.download = filename;
                 document.body.appendChild(link);
                 link.click();
+                document.body.removeChild(link);
+            }
 
-                // Cleanup
-                setTimeout(() => {
-                    document.body.removeChild(link);
-                    URL.revokeObjectURL(url); // Free memory
-                    logger.success("EXPORT", "Master Export Complete (Blob)", { filename: finalName, size: blob.size });
-                    setProgress(100);
-                    setStatusMessage("Export Complete");
-                }, 100);
-
-                setTimeout(() => {
-                    setIsProcessing(false);
-                    setProgress(0);
-                    setStatusMessage("");
-                }, 2000);
-
-            }, 'image/jpeg', quality);
-
-        } catch (e) {
-            console.error(e);
-            logger.error("EXPORT", "Master Export Failed", e);
-            setStatusMessage(`ERROR: ${e}`);
-            setIsProcessing(false);
+        } catch (error) {
+            console.error("Export failed", error);
+            alert("Export failed. Please try again.");
+        } finally {
+            setIsExporting(false);
         }
     };
 
     return (
-        <div className="bg-[#050505] min-h-screen flex flex-col text-white font-sans selection:bg-blue-500/30">
-            {/* Header */}
-            <header className="h-16 border-b border-[#222] flex items-center justify-between px-8 bg-[#0a0a0a]">
-                <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center font-bold tracking-tighter">PA</div>
-                    <span className="font-bold tracking-wide text-sm opacity-80">DELIVERY PAGE</span>
+        <div className="bg-[#0b0f17] min-h-screen flex flex-col text-white font-display">
+             <header className="flex items-center justify-between border-b border-[#232f48] bg-[#111722] px-6 py-4">
+                <div className="flex items-center gap-4">
+                    <span className="material-symbols-outlined text-primary text-2xl">lens_blur</span>
+                    <h2 className="text-lg font-bold">PHOTOAUDIT PRO</h2>
                 </div>
-                <Link to="/" className="text-xs font-bold text-gray-500 hover:text-white transition-colors">RETURN TO WORKSPACE</Link>
+                <Link to="/" className="text-xs font-bold uppercase text-[#92a4c9] hover:text-white">Back to Dashboard</Link>
             </header>
 
-            <main className="flex-1 p-12 flex gap-12 max-w-[1600px] mx-auto w-full">
-
-                {/* LEFT: SOURCE (Read Only) */}
-                <div className="flex-1 flex flex-col gap-6 opacity-60 hover:opacity-100 transition-opacity">
-                    <div className="border-b border-[#333] pb-4 mb-2">
-                        <h2 className="text-2xl font-bold">Source Asset</h2>
-                        <p className="text-gray-500 text-sm font-mono mt-1">
-                            {fileMetadata?.name || "Unknown Asset"}
-                            {fileMetadata?.size && ` // ${(fileMetadata.size / 1024 / 1024).toFixed(2)} MB`}
-                        </p>
+            <main className="flex-1 p-12 max-w-5xl mx-auto w-full">
+                <div className="flex justify-between items-end mb-12 pb-6 border-b border-[#232f48]">
+                    <div>
+                        <h1 className="text-4xl font-bold mb-2">Delivery & Mastering</h1>
+                        <p className="text-[#92a4c9] text-sm">Engine v12.0 Final Output</p>
                     </div>
-
-                    <div className="aspect-video bg-[#111] rounded-lg border border-[#333] overflow-hidden relative flex items-center justify-center group">
-                        {originalImage ? (
-                            <img src={originalImage} className="max-w-full max-h-full object-contain grayscale opacity-50 group-hover:grayscale-0 group-hover:opacity-100 transition-all duration-500" />
-                        ) : (
-                            <span className="text-gray-700 font-mono text-xs">NO ASSET LOADED</span>
-                        )}
-                    </div>
-
-                    <button
-                        onClick={handleDownloadSource}
-                        className="bg-[#222] hover:bg-[#333] text-white py-4 rounded border border-[#333] font-mono text-xs uppercase tracking-widest flex items-center justify-center gap-2 transition-all"
+                    <button 
+                        onClick={handleDownload}
+                        disabled={(!processedImage && exportFormat !== "RAW") || isExporting}
+                        className={`px-8 py-4 rounded font-bold uppercase tracking-widest flex items-center gap-3 transition-all ${((!processedImage && exportFormat !== "RAW") || isExporting) ? 'bg-[#232f48] text-[#64748b] cursor-not-allowed' : 'bg-primary hover:bg-blue-600 text-white shadow-lg shadow-primary/25'}`}
                     >
-                        <span className="material-symbols-outlined text-sm">download</span>
-                        Download Original
-                    </button>
-                    <p className="text-xs text-gray-600 text-center">Passthrough Request. No processing applied.</p>
-                </div>
-
-                {/* VISUAL SEPARATOR */}
-                <div className="w-px bg-gradient-to-b from-transparent via-[#333] to-transparent"></div>
-
-                {/* RIGHT: MASTER (Actionable) */}
-                <div className="flex-1 flex flex-col gap-6">
-                    <div className="border-b border-blue-900/30 pb-4 mb-2">
-                        <h2 className="text-2xl font-bold text-blue-100">Master Output</h2>
-                        <p className="text-blue-400/60 text-sm font-mono mt-1">
-                            Engine v12.1 // JPEG Encoding
-                        </p>
-                    </div>
-
-                    <div className="aspect-video bg-[#0a0f18] rounded-lg border border-blue-900/30 overflow-hidden relative flex items-center justify-center shadow-2xl shadow-blue-900/10">
-                        {previewUrl ? (
-                            <img src={previewUrl} className="max-w-full max-h-full object-contain" />
+                        {isExporting ? (
+                            <>
+                                <span className="material-symbols-outlined animate-spin">sync</span>
+                                Encoding...
+                            </>
                         ) : (
-                            <span className="text-gray-800 font-mono text-xs">NO SIGNAL</span>
+                            <>
+                                <span className="material-symbols-outlined">download</span>
+                                Export Master
+                            </>
                         )}
-
-                        {/* LOADING OVERLAY */}
-                        {isProcessing && (
-                            <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center z-50">
-                                <div className="w-64 h-1 bg-[#333] rounded-full overflow-hidden mb-4">
-                                    <div className="h-full bg-blue-500 transition-all duration-300 ease-out" style={{ width: `${progress}%` }}></div>
-                                </div>
-                                <span className="text-blue-400 font-mono text-xs animate-pulse">{statusMessage}</span>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="flex gap-4">
-                        <button
-                            onClick={handleExportMaster}
-                            disabled={isProcessing}
-                            className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 disabled:text-gray-600 text-white py-6 rounded font-bold uppercase tracking-widest text-sm shadow-xl shadow-blue-600/20 hover:shadow-blue-500/40 transition-all flex items-center justify-center gap-3"
-                        >
-                            {isProcessing ? (
-                                <>
-                                    <span className="material-symbols-outlined animate-spin">settings</span>
-                                    PROCESSING...
-                                </>
-                            ) : (
-                                <>
-                                    <span className="material-symbols-outlined">save</span>
-                                    EXPORT MASTER JPG
-                                </>
-                            )}
-                        </button>
-                    </div>
-                    <p className="text-xs text-blue-400/40 text-center font-mono">
-                        Config: JPEG / Q{quality * 100} / Scale {scale * 100}% / sRGB
-                    </p>
+                    </button>
                 </div>
 
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    {/* Settings Panel */}
+                    <div className="bg-[#111722] border border-[#232f48] rounded p-6">
+                        <h3 className="text-sm font-bold uppercase tracking-widest mb-4 flex items-center gap-2">
+                             <span className="material-symbols-outlined text-sm">settings_photo_camera</span> Export Configuration
+                        </h3>
+                        <div className="space-y-6">
+                            
+                            {/* Format Selection */}
+                            <div className="flex flex-col gap-2">
+                                <label className="text-xs text-[#92a4c9] uppercase font-bold">File Format</label>
+                                <div className="grid grid-cols-1 gap-2">
+                                    <button 
+                                        onClick={() => setExportFormat("JPG 100%")}
+                                        className={`flex items-center justify-between p-3 rounded border text-sm transition-all ${exportFormat === "JPG 100%" ? 'bg-primary/20 border-primary text-white' : 'bg-[#1a2333] border-[#232f48] text-[#92a4c9] hover:border-white/30'}`}
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            <span className="material-symbols-outlined text-lg">image</span>
+                                            <span>JPG (Maximum Quality)</span>
+                                        </div>
+                                        <span className="text-[10px] font-mono opacity-50">100%</span>
+                                    </button>
+                                    
+                                    <button 
+                                        onClick={() => setExportFormat("PNG")}
+                                        className={`flex items-center justify-between p-3 rounded border text-sm transition-all ${exportFormat === "PNG" ? 'bg-primary/20 border-primary text-white' : 'bg-[#1a2333] border-[#232f48] text-[#92a4c9] hover:border-white/30'}`}
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            <span className="material-symbols-outlined text-lg">imagesmode</span>
+                                            <span>PNG (Lossless)</span>
+                                        </div>
+                                        <span className="text-[10px] font-mono opacity-50">16-BIT SIM</span>
+                                    </button>
+
+                                    <button 
+                                        onClick={() => setExportFormat("RAW")}
+                                        className={`flex items-center justify-between p-3 rounded border text-sm transition-all ${exportFormat === "RAW" ? 'bg-emerald-500/20 border-emerald-500 text-white' : 'bg-[#1a2333] border-[#232f48] text-[#92a4c9] hover:border-white/30'}`}
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            <span className="material-symbols-outlined text-lg">raw_on</span>
+                                            <span>Original RAW Source</span>
+                                        </div>
+                                        <span className="text-[10px] font-mono opacity-50">ARCHIVE</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Resolution Selection */}
+                            {exportFormat !== "RAW" && (
+                                <div className="flex flex-col gap-2 animate-fade-in">
+                                    <label className="text-xs text-[#92a4c9] uppercase font-bold">Output Resolution</label>
+                                    <select 
+                                        value={resolutionMode}
+                                        onChange={(e) => setResolutionMode(e.target.value)}
+                                        className="bg-[#1a2333] border border-[#232f48] text-white text-sm p-3 rounded outline-none focus:border-primary"
+                                    >
+                                        <option value="NATIVE">Native AI Resolution (4K/2K)</option>
+                                        {sourceDimensions && <option value="MATCH_SOURCE">Match Source Resolution (Upscale) [{sourceDimensions.w}x{sourceDimensions.h}]</option>}
+                                        <option value="1080P">HD 1080p (Web/Social)</option>
+                                    </select>
+                                    <p className="text-[10px] text-[#64748b] mt-1">
+                                        *Selecting "Match Source" will use bicubic interpolation to match original dimensions.
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Preview Panel */}
+                    <div className="bg-[#111722] border border-[#232f48] rounded p-6 flex flex-col justify-center items-center text-center relative overflow-hidden group">
+                         <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(0,0,0,0.2)_25%,transparent_25%,transparent_50%,rgba(0,0,0,0.2)_50%,rgba(0,0,0,0.2)_75%,transparent_75%,transparent)] bg-[size:20px_20px] opacity-10"></div>
+                         
+                         {processedImage && exportFormat !== "RAW" ? (
+                             <>
+                                <img src={processedImage} className="max-h-48 mb-4 shadow-2xl border border-white/10 rounded" alt="Preview" />
+                                <h3 className="text-xl font-bold text-white mb-1 z-10">Master Render Ready</h3>
+                                <p className="text-[#92a4c9] text-sm z-10 font-mono">
+                                    {resolutionMode === "MATCH_SOURCE" && sourceDimensions ? `${sourceDimensions.w}x${sourceDimensions.h}` : resolutionMode === "NATIVE" ? "AI NATIVE RES" : "1920x1080"} 
+                                    {' '}// {exportFormat}
+                                </p>
+                             </>
+                         ) : exportFormat === "RAW" && fileMetadata ? (
+                             <>
+                                <span className="material-symbols-outlined text-6xl text-emerald-500 mb-4 z-10">folder_zip</span>
+                                <h3 className="text-xl font-bold text-white mb-1 z-10">Source Archive</h3>
+                                <p className="text-[#92a4c9] text-sm z-10 font-mono">{fileMetadata.name}</p>
+                             </>
+                         ) : (
+                             <>
+                                <span className="material-symbols-outlined text-6xl text-[#232f48] mb-4 z-10">image_not_supported</span>
+                                <h3 className="text-xl font-bold text-[#64748b] mb-2 z-10">No Render Available</h3>
+                                <p className="text-[#92a4c9] text-sm z-10">Process an image first.</p>
+                             </>
+                         )}
+                    </div>
+                </div>
             </main>
         </div>
     );

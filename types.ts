@@ -19,9 +19,7 @@ export interface LightingData {
 
 export interface OpticalData {
     mtf50: string; // e.g. "2800 LW/PH"
-    mtf50_lwph?: number; // Book 1: ISO 12233 Standard
     chromaticAberration: string; // e.g. "0.8px (Red/Cyan)"
-    chromatic_aberration_percent?: number; // Book 1: % distance from center
     distortion: string; // e.g. "-1.2% Barrel"
 }
 
@@ -29,16 +27,10 @@ export interface SignalData {
     rmsNoise: number; // Root Mean Square noise
     snr: number; // Signal to Noise Ratio in dB
     dynamicRange: number; // Stops
-    dynamic_range_fstops?: number; // Book 1 & 3: Objective Metric
     clipping: { highlights: boolean; shadows: boolean };
 }
 
-// ... existing types
-export type ProcessingSource = 'CLOUD' | 'LOCAL';
-
 export interface TelemetryData {
-    // ... existing properties
-    processingSource?: ProcessingSource;
     sharpness: number;
     noiseLevel: number;
     dynamicRange: string;
@@ -52,21 +44,6 @@ export interface TelemetryData {
     spectralAnalysis: number[];
     optics: OpticalData;
     signal: SignalData;
-    provenance_hash?: string; // Book 1: Content Provenance
-
-    // NEW: Deep Analysis & Professional AI Suggestions
-    suggestedCurve?: number[][]; // Array of [x, y] control points (0-255)
-    aiSuggestions?: string[]; // Dynamic list of fixes (e.g., "Warm up midtones")
-    gradingScore?: number; // 0-100 Professional Rating
-}
-
-export interface Snapshot {
-    id: string;
-    timestamp: number;
-    imageUrl: string;
-    thumbnailUrl: string; // Could be same as imageUrl for simplicity
-    label: string; // e.g., "Version 1 (B&W)"
-    gradingState: GradingState;
 }
 
 export interface GradingState {
@@ -110,32 +87,17 @@ export interface AppContextType {
     telemetry: TelemetryData | null;
     processingState: ProcessingState;
     gradingState: GradingState;
-    fileMetadata: FileMetadata | null;
-    canUndo: boolean;
-    setOriginalImage: (url: string, metadata?: FileMetadata) => void;
+    fileMetadata: FileMetadata | null; 
+    canUndo: boolean; 
+    setOriginalImage: (url: string) => void;
     setProcessedImage: (url: string) => void;
     setRawBinary: (data: string | null) => void; // NEW
     setTelemetry: (data: TelemetryData) => void;
     setProcessingState: (state: ProcessingState) => void;
-    analysis: ActionProposal[];
-    lastProcessingSource: 'CLOUD' | 'LOCAL' | null;
     setGradingState: (state: GradingState) => void;
-
-    // History & Snapshots
-    editHistory: string[];
-    snapshots: Snapshot[];
-    addSnapshot: (label: string, url: string) => void;
-    deleteSnapshot: (id: string) => void;
-    restoreSnapshot: (id: string) => void;
-
-    // processing
-    processImage: (
-        imageBytes: string,
-        mimeType: string,
-        prompt: string,
-        manualOverrides?: GradingState,
-        lighting?: { direction: number, intensity: number, temperature: number }
-    ) => Promise<boolean>;
+    setFileMetadata: (data: FileMetadata | null) => void; 
+    analyzeImage: (imageBytes: string, mimeType: string) => Promise<void>;
+    processImage: (imageBytes: string, mimeType: string, prompt: string, manualOverrides?: GradingState) => Promise<void>;
     undoLastEdit: () => void;
 }
 
@@ -182,33 +144,13 @@ export const MOCK_TELEMETRY: TelemetryData = {
     spectralAnalysis: [20, 45, 60, 80, 95, 70, 50, 40, 30, 20],
     optics: {
         mtf50: "3200 LW/PH",
-        mtf50_lwph: 3200,
         chromaticAberration: "0.2px (Negligible)",
-        chromatic_aberration_percent: 0.05,
         distortion: "-0.1%"
     },
     signal: {
         rmsNoise: 1.2,
         snr: 48,
         dynamicRange: 14.5,
-        dynamic_range_fstops: 14.5,
         clipping: { highlights: false, shadows: false }
-    },
-    provenance_hash: "sha256-mock-hash-1234567890",
-
-    // MOCK DEEP ANALYSIS
-    gradingScore: 85,
-    aiSuggestions: [
-        "AI Insight: Midtone contrast is flat. Suggest S-Curve application.",
-        "AI Insight: Shadows contain slight color cast (Green tint). Neutralize.",
-        "AI Insight: Highlights are well preserved. maintain roll-off.",
-        "AI Insight: Skin texture is organic. Do not smooth."
-    ],
-    suggestedCurve: [
-        [0, 0],
-        [60, 45],
-        [128, 140],
-        [200, 220],
-        [255, 255]
-    ]
+    }
 };

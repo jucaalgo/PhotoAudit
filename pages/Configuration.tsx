@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 
 const Configuration = () => {
     const [apiKeyStatus, setApiKeyStatus] = useState<'IDLE' | 'LINKED' | 'VERIFYING'>('VERIFYING');
-
+    
     // Authentication State (Simulated Security Layer)
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [authInput, setAuthInput] = useState({ username: '', password: '' });
@@ -15,15 +15,6 @@ const Configuration = () => {
 
     useEffect(() => {
         checkStatus();
-        // Load persistent credentials
-        const storedCreds = localStorage.getItem('VERTEX_CREDENTIALS');
-        if (storedCreds) {
-            try {
-                setServiceAccount(JSON.parse(storedCreds));
-            } catch (e) {
-                console.error("Failed to load stored credentials", e);
-            }
-        }
     }, []);
 
     const checkStatus = async () => {
@@ -49,7 +40,7 @@ const Configuration = () => {
             setAuthError(false);
         } else {
             setAuthError(true);
-            setAuthInput(prev => ({ ...prev, password: '' }));
+            setAuthInput(prev => ({ ...prev, password: '' })); 
         }
     };
 
@@ -65,7 +56,6 @@ const Configuration = () => {
                 try {
                     const json = JSON.parse(event.target?.result as string);
                     setServiceAccount(json);
-                    localStorage.setItem('VERTEX_CREDENTIALS', JSON.stringify(json)); // PERSISTENCE
                 } catch (err) {
                     console.error("Invalid JSON", err);
                     alert("INVALID KEY FILE: CORRUPTED JSON STRUCTURE");
@@ -97,12 +87,12 @@ const Configuration = () => {
 
             <main className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-[#05070a] flex items-center justify-center">
                 <div className="w-full max-w-4xl">
-
+                    
                     {!isAuthenticated ? (
                         // LOCKED STATE
                         <div className="bg-[#0b0f17] border border-[#232f48] rounded-xl p-16 flex flex-col items-center justify-center relative overflow-hidden shadow-2xl">
                             <div className="absolute inset-0 bg-[repeating-linear-gradient(45deg,transparent,transparent_10px,rgba(239,68,68,0.03)_10px,rgba(239,68,68,0.03)_20px)] pointer-events-none"></div>
-
+                            
                             <div className="w-full max-w-md bg-[#111722] border border-[#232f48] p-8 rounded-lg shadow-2xl relative z-10 flex flex-col gap-6">
                                 <div className="flex flex-col items-center gap-2 mb-4">
                                     <div className="p-4 rounded-full bg-red-500/10 border border-red-500/20 text-red-500 mb-2">
@@ -115,23 +105,23 @@ const Configuration = () => {
                                 <div className="space-y-4">
                                     <div className="relative group">
                                         <span className="absolute left-3 top-3 text-[#64748b] material-symbols-outlined text-lg">person</span>
-                                        <input
-                                            type="text"
-                                            placeholder="IDENTITY"
+                                        <input 
+                                            type="text" 
+                                            placeholder="IDENTITY" 
                                             className="w-full bg-[#05070a] border border-[#232f48] text-white text-sm pl-10 pr-4 py-3 rounded font-mono focus:border-red-500 focus:outline-none transition-colors uppercase placeholder:text-[#323b49]"
                                             value={authInput.username}
-                                            onChange={(e) => setAuthInput({ ...authInput, username: e.target.value })}
+                                            onChange={(e) => setAuthInput({...authInput, username: e.target.value})}
                                             onKeyDown={handleKeyDown}
                                         />
                                     </div>
                                     <div className="relative group">
                                         <span className="absolute left-3 top-3 text-[#64748b] material-symbols-outlined text-lg">key</span>
-                                        <input
-                                            type="password"
-                                            placeholder="PASSPHRASE"
+                                        <input 
+                                            type="password" 
+                                            placeholder="PASSPHRASE" 
                                             className="w-full bg-[#05070a] border border-[#232f48] text-white text-sm pl-10 pr-4 py-3 rounded font-mono focus:border-red-500 focus:outline-none transition-colors placeholder:text-[#323b49]"
                                             value={authInput.password}
-                                            onChange={(e) => setAuthInput({ ...authInput, password: e.target.value })}
+                                            onChange={(e) => setAuthInput({...authInput, password: e.target.value})}
                                             onKeyDown={handleKeyDown}
                                         />
                                     </div>
@@ -142,7 +132,7 @@ const Configuration = () => {
                                         </div>
                                     )}
 
-                                    <button
+                                    <button 
                                         onClick={handleLogin}
                                         className="w-full bg-red-600 hover:bg-red-500 text-white font-bold text-xs uppercase tracking-widest py-3 rounded shadow-lg shadow-red-500/20 transition-all flex items-center justify-center gap-2 mt-2"
                                     >
@@ -155,7 +145,7 @@ const Configuration = () => {
                     ) : (
                         // AUTHENTICATED STATE
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-fade-in-up">
-
+                            
                             {/* LEFT: JSON UPLOAD ZONE */}
                             <div className="bg-[#111722] border border-[#232f48] rounded-xl overflow-hidden shadow-2xl flex flex-col">
                                 <div className="bg-[#161b22] px-6 py-4 border-b border-[#232f48] flex justify-between items-center">
@@ -165,7 +155,7 @@ const Configuration = () => {
                                     </h3>
                                     <span className="text-[10px] bg-[#05070a] border border-[#232f48] px-2 py-1 rounded text-[#92a4c9] font-mono">JSON / GCP</span>
                                 </div>
-
+                                
                                 <div className="p-6 flex-1 flex flex-col">
                                     {serviceAccount ? (
                                         <div className="flex-1 bg-[#05070a] rounded border border-emerald-500/30 p-4 font-mono text-xs relative overflow-hidden group">
@@ -180,29 +170,26 @@ const Configuration = () => {
                                                 <div className="grid grid-cols-[80px_1fr] gap-2 text-[#92a4c9]">
                                                     <span className="text-[#64748b]">TYPE:</span>
                                                     <span className="text-white">{serviceAccount.type}</span>
-
+                                                    
                                                     <span className="text-[#64748b]">PROJECT:</span>
                                                     <span className="text-white">{serviceAccount.project_id}</span>
-
+                                                    
                                                     <span className="text-[#64748b]">EMAIL:</span>
                                                     <span className="text-white truncate">{serviceAccount.client_email}</span>
-
+                                                    
                                                     <span className="text-[#64748b]">KEY ID:</span>
                                                     <span className="text-white font-mono">{serviceAccount.private_key_id?.substring(0, 8)}...</span>
                                                 </div>
                                             </div>
-                                            <button
-                                                onClick={() => {
-                                                    setServiceAccount(null);
-                                                    localStorage.removeItem('VERTEX_CREDENTIALS');
-                                                }}
+                                            <button 
+                                                onClick={() => setServiceAccount(null)}
                                                 className="absolute bottom-4 right-4 text-[10px] text-red-400 hover:text-red-300 font-bold uppercase tracking-widest flex items-center gap-1 bg-[#1a2333] px-2 py-1 rounded border border-[#232f48]"
                                             >
                                                 Revoke
                                             </button>
                                         </div>
                                     ) : (
-                                        <div
+                                        <div 
                                             onClick={() => fileInputRef.current?.click()}
                                             className="flex-1 border-2 border-dashed border-[#232f48] hover:border-emerald-500/50 hover:bg-[#1a2333] rounded transition-all cursor-pointer flex flex-col items-center justify-center gap-4 group min-h-[200px]"
                                         >
@@ -230,10 +217,10 @@ const Configuration = () => {
                                     </div>
                                     <div className="p-6 space-y-6">
                                         <p className="text-xs text-[#92a4c9] leading-relaxed">
-                                            Connect your Google AI Studio API key for immediate access to Gemini 2.0 Flash models.
+                                            Connect your Google AI Studio API key for immediate access to Gemini 2.0 Flash models. 
                                             Requires billing enabled for High-Res processing.
                                         </p>
-
+                                        
                                         <div className="bg-[#05070a] p-4 rounded border border-[#232f48] flex items-center justify-between">
                                             <div className="flex items-center gap-3">
                                                 <div className={`size-3 rounded-full ${apiKeyStatus === 'LINKED' ? 'bg-emerald-500 shadow-[0_0_10px_#10b981]' : 'bg-red-500 animate-pulse'}`}></div>
@@ -244,7 +231,7 @@ const Configuration = () => {
                                             {apiKeyStatus === 'LINKED' && <span className="text-[10px] text-[#64748b] font-mono">ENCRYPTED</span>}
                                         </div>
 
-                                        <button
+                                        <button 
                                             onClick={handleLinkApi}
                                             className="w-full py-4 rounded bg-[#1a2333] border border-[#232f48] hover:border-blue-500 hover:text-white text-[#92a4c9] font-bold text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2"
                                         >
@@ -259,7 +246,7 @@ const Configuration = () => {
                                         <h4 className="text-white font-bold text-xs uppercase tracking-wider">Session Security</h4>
                                         <p className="text-[#64748b] text-[10px] mt-1">AUTO-LOGOUT DISABLED</p>
                                     </div>
-                                    <button
+                                    <button 
                                         onClick={() => { setIsAuthenticated(false); setServiceAccount(null); }}
                                         className="text-red-500 hover:text-white hover:bg-red-500 px-4 py-2 rounded text-xs font-bold uppercase tracking-wider transition-colors border border-red-500/30"
                                     >
